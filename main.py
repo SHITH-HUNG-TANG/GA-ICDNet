@@ -121,7 +121,7 @@ def main():
     for epoch in range(args.start_epoch, args.max_epoch):
         print("==> {}/{}".format(epoch + 1, args.max_epoch))
         cont_iter = train(epoch, model, criterion_cont, criterion_trip, criterion_sim, criterion_l2,criterion_label, optimizer, scheduler, trainLoader, device, cont_iter)
-        print("################################################################################")        
+     
         if cont_iter > 250000:
             break
         if True:
@@ -140,7 +140,6 @@ def main():
                     'epoch': epoch,
                     'optimizer': optimizer.state_dict(),
                 }, osp.join(args.save_dir, 'ep' + str(epoch + 1) +'.pth.tar'), is_best)
-            print("################################################################################")
 
     elapsed = round(time.time() - start_time)
     elapsed = str(datetime.timedelta(seconds=elapsed))
