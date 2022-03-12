@@ -335,30 +335,38 @@ class ICDNet_group_mask_mask_early_8(nn.Module):
         
         x_se_bag = self.inception4_bag(x_se_bag) #128*8*8
         x_bag_feature=x_se_bag.clone()
-        x_se_ident = self.inception4_ident(x_se_ident) #128*8*8
-        x_se_bag=self.maxpooling4(x_se_bag)
+        x_se_bag=self.maxpooling4(x_se_bag) #128*4*4 T
+        
+        x_se_ident = self.inception4_ident(x_se_ident) #384*8*8 T
+        x_se_ident = self.maxpooling4(x_se_ident) #384*4*4 
+
         
         x_bag=self.conv5_bag_cla(x_se_bag) #batch*32*1*1
-        
-        
-        x_se_ident = self.maxpooling4(x_se_ident) #384*4*4
         x_ident = self.conv5_ident(x_se_ident) # batch*96*1*1
         
+        #=====================================================================================
         features=[]
         for i in range(4):
             features.append(self.group_conv[i](x_bag_feature))
         features_bag=torch.cat([j for j in features], dim=1) # batch*32*1*1
+        
+        #=====================================================================================
 
         x=torch.cat([x_ident,features_bag],dim=1) #batch*128*1*1
+
 
         x_bag=x_bag.squeeze(2)
         x_bag=x_bag.squeeze(2)
         x_bag=self.classifiers(x_bag) #batch*7
         x_bag_soft=x_bag.clone()
         x_bag_soft=self.classifiers_4channel(1-x_bag_soft)
+        
+        #=====================================================================================
         for i in range(4):
             features[i]=features[i]*(x_bag_soft[:,i].unsqueeze(1).expand(-1,8).unsqueeze(2).unsqueeze(3))
         features=torch.cat([j for j in features], dim=1) 
+        #=====================================================================================
+        
         x_ident=torch.cat([x_ident,features],dim=1)
 
 

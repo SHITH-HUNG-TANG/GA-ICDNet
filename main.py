@@ -19,8 +19,9 @@ import models
 from models import model
 import data_manager
 from img_loader import ImageDataset,ImageDataset_aug
-from samplers import RandomIdentitySampler,RandomIdentitySampler_aug
-from utils import AverageMeter, save_checkpoint, Logger
+from torchreid.data.sampler import RandomIdentitySampler
+from torchreid.utils.avgmeter import AverageMeter
+from torchreid.utils.torchtools import save_checkpoint
 from eval_metrics import evaluate,evaluate_rank
 
 sys.path.append("./")
@@ -32,14 +33,14 @@ parser.add_argument('--start-epoch', default=0, type=int,
                     help="start epochs to run")
 parser.add_argument("-j", "--workers", default=4, type=int, help="number of data loading workers(default: 4)")
 parser.add_argument('--gpu-devices', default='0', type=str, help='gpu device ids for CUDA_VISIBLE_DEVICES')
-#parser.add_argument('--cooperative', default=1, type=int, help='whether the probe set only consists of subject with bags')
-parser.add_argument('--cooperative', default=1,type=int)
+parser.add_argument('--cooperative', default=1, type=int, help='whether the probe set only consists of subject with bags')
+#parser.add_argument('--cooperative', default=1,type=int)
 # optimization options
 parser.add_argument("--train_batch", default=350, type=int)
 parser.add_argument("--test_batch", default=350, type=int)
 parser.add_argument("--lr", '--learning-rate', default=0.0002, type=float)
 parser.add_argument("--weight-decay", default=5e-4, type=float)
-parser.add_argument("--save-dir", default='./save_dir/', type=str)
+parser.add_argument("--save-dir", default='save_dir', type=str)
 # Architecture
 
 # Miscs
@@ -64,10 +65,13 @@ def main():
     device = torch.device('cuda')
 
     print("Initializing dataset")
-    dataset = data_manager.init_dataset('./dataset_GEI','id_list.csv',args.cooperative)
+    dataset = data_manager.init_dataset('../dataSet/OULP_Bag_dataset_GEI','id_list.csv',args.cooperative)
 
     transform = transforms.Compose([
-        transforms.RandomAffine(degrees=0, translate=(0.05, 0.02)),
+        transforms.RandomAffine(degrees=0, translate=(0.05, 0.02)), 
+        #For example translate=(a, b), then horizontal shift is randomly sampled in the range 
+        # -img_width * a < dx < img_width * a and vertical shift is randomly sampled in the range -img_height * b < dy < img_height * b. 
+        # Will not translate by default.
         transforms.ToTensor()
     ])
     transform_test = transforms.Compose([
@@ -76,7 +80,7 @@ def main():
     # trainLoader
     trainLoader = DataLoader(
         ImageDataset(dataset.train, sample='random', transform=transform),
-        sampler=RandomIdentitySampler(dataset.train, num_instances=2),
+        sampler=RandomIdentitySampler(dataset.train, num_instances=2, batch_size=args.train_batch),
         batch_size=args.train_batch, num_workers=args.workers
     )
 
@@ -112,11 +116,12 @@ def main():
     #model.load_state_dict(checkpoint['state_dict'])
     start_time = time.time()
     best_rank1 = -np.inf
-    #args.max_epoch = 1
+    args.max_epoch = 150
     cont_iter = 1
     for epoch in range(args.start_epoch, args.max_epoch):
         print("==> {}/{}".format(epoch + 1, args.max_epoch))
         cont_iter = train(epoch, model, criterion_cont, criterion_trip, criterion_sim, criterion_l2,criterion_label, optimizer, scheduler, trainLoader, device, cont_iter)
+        print("################################################################################")        
         if cont_iter > 250000:
             break
         if True:
@@ -134,7 +139,8 @@ def main():
                     'state_dict': state_dict,
                     'epoch': epoch,
                     'optimizer': optimizer.state_dict(),
-                }, is_best, osp.join(args.save_dir, 'ep' + str(epoch + 1) +'.pth.tar'))
+                }, osp.join(args.save_dir, 'ep' + str(epoch + 1) +'.pth.tar'), is_best)
+            print("################################################################################")
 
     elapsed = round(time.time() - start_time)
     elapsed = str(datetime.timedelta(seconds=elapsed))
@@ -272,6 +278,7 @@ def test(model, queryLoader, galleryLoader, device, ranks=[1, 5, 10, 20]):
             qf.append(features)
             q_pids.extend(pid)
             q_bags.extend(bag)
+
         qf = torch.cat([x for x in qf])#torch.stack(qf)
         q_pids = np.asarray(q_pids)
 
@@ -308,14 +315,11 @@ def test(model, queryLoader, galleryLoader, device, ranks=[1, 5, 10, 20]):
 
         '''
         m, n = qf.size(0), gf.size(0)
-
         distmat = torch.pow(qf, 2).sum(dim=1, keepdim=True).expand(m, n) + \
                   torch.pow(gf, 2).sum(dim=1, keepdim=True).expand(n, m).t()
         distmat.addmm_(1, -2, qf, gf.t())
         distmat = distmat.numpy()
-
         cmc, mAP = evaluate(distmat, q_pids, g_pids)
-
         '''
         
         print("Results ----------")
@@ -332,25 +336,3 @@ def test(model, queryLoader, galleryLoader, device, ranks=[1, 5, 10, 20]):
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
