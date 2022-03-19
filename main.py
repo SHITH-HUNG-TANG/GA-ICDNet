@@ -157,7 +157,7 @@ def train(epoch, model, criterion_cont, criterion_trip, criterion_sim, criterion
     print('lr:',optimizer.state_dict()['param_groups'][0]['lr'])
     lr=optimizer.state_dict()['param_groups'][0]['lr']
     if lr<=0.0001:
-        checkpoint = torch.load('./'+args.save_dir+'/best_model.pth.tar')
+        checkpoint = torch.load('./'+args.save_dir+'/model-best.pth.tar')
         model.load_state_dict(checkpoint['state_dict'])
     total=0.0
     total_correct=0.0
