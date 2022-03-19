@@ -2,7 +2,6 @@ import torch.nn as nn
 import torch.utils.model_zoo as model_zoo
 import torch
 from torchvision.transforms import *
-from tensorboardX import SummaryWriter
 import torchvision.models as models
 import torchvision
 from torch.nn.parameter import Parameter

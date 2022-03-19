@@ -23,6 +23,7 @@ from torchreid.data.sampler import RandomIdentitySampler
 from torchreid.utils.avgmeter import AverageMeter
 from torchreid.utils.torchtools import save_checkpoint
 from eval_metrics import evaluate,evaluate_rank
+from torch.utils.tensorboard  import SummaryWriter
 
 sys.path.append("./")
 parser = argparse.ArgumentParser(description="Using GA-ICDNet train gait model with triplet-loss and sim-loss and reconst-loss")
@@ -52,8 +53,7 @@ if not os.path.exists(args.save_dir):
 
 train_f = open(args.save_dir+"/train_loss.txt", "w")
 test_f = open(args.save_dir+"/test.txt", "w")
-from tensorboardX import SummaryWriter
-writer = SummaryWriter(comment="_label_group_mask_ones_ablation_early8_sa3_shift005002_0002_500_01label_default_split_truesim_resbottle_con_coo_"+str(args.cooperative))
+writer = SummaryWriter(log_dir= './runs/cooperative_trip_loss-1_sim_loss-0.1_recon_Loss-500_label_loss-0.05')
 
 cont_iter = 1
 
@@ -128,8 +128,8 @@ def main():
             print("=============> Test")
             test_f.write("iter" + str(cont_iter) + '\n')
             rank1,correct_rate = test(model, test_probeLoader, test_galleryLoader, device)
-            writer.add_scalar("Test/rank1", rank1, epoch)
-            writer.add_scalar("Test/correct", correct_rate, epoch)
+            writer.add_scalars("Test/rank1", {'rank1':rank1}, epoch)
+            writer.add_scalars("Test/correct", {'correct':correct_rate}, epoch)
             is_best = rank1 > best_rank1
             if is_best:
                 best_rank1 = rank1
@@ -139,7 +139,7 @@ def main():
                     'state_dict': state_dict,
                     'epoch': epoch,
                     'optimizer': optimizer.state_dict(),
-                }, osp.join(args.save_dir, 'ep' + str(epoch + 1) +'.pth.tar'), is_best)
+                }, args.save_dir, is_best)
 
     elapsed = round(time.time() - start_time)
     elapsed = str(datetime.timedelta(seconds=elapsed))
@@ -212,11 +212,12 @@ def train(epoch, model, criterion_cont, criterion_trip, criterion_sim, criterion
         sim_losses.update(sim_loss.item())
         cont_losses.update(cont_loss.item())
         label_losses.update(label_loss.item())
-        writer.add_scalar("Train/Loss", losses.val, cont_iter)
-        writer.add_scalar("Train/trip_Loss", trip_losses.val, cont_iter)
-        writer.add_scalar("Train/sim_Loss", sim_losses.val, cont_iter)
-        writer.add_scalar("Train/cont_Loss", cont_losses.val, cont_iter)
-        writer.add_scalar("Train/label_loss", label_losses.val, cont_iter)
+        
+        writer.add_scalars("Train/Loss", {'Loss':losses.val}, cont_iter)
+        writer.add_scalars("Train/trip_Loss", {'trip_Loss':trip_losses.val}, cont_iter)
+        writer.add_scalars("Train/sim_Loss", {'sim_Loss':sim_losses.val}, cont_iter)
+        writer.add_scalars("Train/cont_Loss", {'cont_Loss':cont_losses.val}, cont_iter)
+        writer.add_scalars("Train/label_loss", {'label_loss':label_losses.val}, cont_iter)
         cont_iter += 1
 
         if (cont_iter + 1) % 50 == 0:

@@ -54,3 +54,4 @@ dkms.conf
 /runs*/*
 *.pyc
 /save_dir/*
+/backup/*
