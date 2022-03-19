@@ -48,7 +48,6 @@ class CrossEntropyLabelSmooth(nn.Module):
         loss = (- targets * log_probs).mean(0).sum()
         return loss
 
-
 class CenterLoss(nn.Module):
     """Center loss.
 
@@ -187,7 +186,6 @@ class TripletSelector(object):
     def get_triplets(self, embeddings, labels):
         raise NotImplementedError
 
-
 class AllTripletSelector(TripletSelector):
     """
     Returns all possible triplets
@@ -306,13 +304,14 @@ def euclidean_dist(x, y):
     m, n = x.size(0), y.size(0)
     xx = torch.pow(x, 2).sum(1, keepdim=True).expand(m, n)
     yy = torch.pow(y, 2).sum(1, keepdim=True).expand(n, m).t()
+    
     dist = xx + yy
     dist.addmm_(1, -2, x, y.t())
     dist = dist.clamp(min=1e-12).sqrt()  # for numerical stability
     return dist
 
 
-def hard_example_mining(dist_mat, labels, return_inds=False):
+def  hard_example_mining(dist_mat, labels, return_inds=False):
     """For each anchor, find the hardest positive and negative sample.
     Args:
       dist_mat: pytorch Variable, pair wise distance between samples, shape [N, N]
@@ -336,24 +335,28 @@ def hard_example_mining(dist_mat, labels, return_inds=False):
     # shape [N, N]
     is_pos = labels.expand(N, N).eq(labels.expand(N, N).t())
     is_neg = labels.expand(N, N).ne(labels.expand(N, N).t())
-
+    
     # `dist_ap` means distance(anchor, positive)
     # both `dist_ap` and `relative_p_inds` with shape [N, 1]
     dist_ap, relative_p_inds = torch.max(
         dist_mat[is_pos].contiguous().view(N, -1), 1, keepdim=True)
+    
     # `dist_an` means distance(anchor, negative)
     # both `dist_an` and `relative_n_inds` with shape [N, 1]
     dist_an, relative_n_inds = torch.min(
         dist_mat[is_neg].contiguous().view(N, -1), 1, keepdim=True)
+    
     # shape [N]
     dist_ap = dist_ap.squeeze(1)
     dist_an = dist_an.squeeze(1)
+    
 
     if return_inds:
         # shape [N, N]
         ind = (labels.new().resize_as_(labels)
                .copy_(torch.arange(0, N).long())
                .unsqueeze(0).expand(N, N))
+        
         # shape [N, 1]
         p_inds = torch.gather(
             ind[is_pos].contiguous().view(N, -1), 1, relative_p_inds.data)
@@ -372,6 +375,7 @@ class TripletLoss(object):
     """Modified from Tong Xiao's open-reid (https://github.com/Cysu/open-reid).
     Related Triplet Loss theory can be found in paper 'In Defense of the Triplet
     Loss for Person Re-Identification'."""
+    
 
     def __init__(self, margin=None):
         self.margin = margin
@@ -387,6 +391,7 @@ class TripletLoss(object):
         dist_mat = euclidean_dist(global_feat, global_feat)
         dist_ap, dist_an = hard_example_mining(
             dist_mat, labels)
+
         y = dist_an.new().resize_as_(dist_an).fill_(1)
         if self.margin is not None:
             loss = self.ranking_loss(dist_an, dist_ap, y)
@@ -420,5 +425,279 @@ class Contloss(object):
         dist_an=((self.margin-dist_an).clamp(min=1e-12)).mean()
         return dist_ap.mean(),dist_an
 
+
+
+
+class myTripletLoss(object):
+    """Modified from Tong Xiao's open-reid (https://github.com/Cysu/open-reid).
+    Related Triplet Loss theory can be found in paper 'In Defense of the Triplet
+    Loss for Person Re-Identification'."""
+    
+    def __init__(self, margin, type='batch_all', squared=False):#batch_hard
+        self.margin = margin
+        self.squared = squared
+        self.type = type
+
+    def __call__(self, embeddings, labels):
+        embeddings = torch.reshape(embeddings, (embeddings.size(0), embeddings.size(1)))
+
+        if self.type == 'batch_all':
+            return self.batch_hard_triplet_loss(embeddings, labels)
+        elif self.type == 'batch_hard':
+            return self.batch_hard_triplet_loss(embeddings, labels)
+        else:
+            print("type error")
+            exit()
+
+
+    def _pairwise_distances(self, embeddings):
+        """Compute the 2D matrix of distances between all the embeddings.
+        Args:
+            embeddings: tensor of shape (batch_size, embed_dim)
+            squared: Boolean. If true, output is the pairwise squared euclidean distance matrix.
+                    If false, output is the pairwise euclidean distance matrix.
+        Returns:
+            pairwise_distances: tensor of shape (batch_size, batch_size)
+        """
+        dot_product = torch.matmul(embeddings, embeddings.t())
+
+
+        # Get squared L2 norm for each embedding. We can just take the diagonal of `dot_product`.
+        # This also provides more numerical stability (the diagonal of the result will be exactly 0).
+        # shape (batch_size,)
+        square_norm = torch.diag(dot_product)
+
+        # Compute the pairwise distance matrix as we have:
+        # ||a - b||^2 = ||a||^2  - 2 <a, b> + ||b||^2
+        # shape (batch_size, batch_size)
+        distances = square_norm.unsqueeze(0) - 2.0 * dot_product + square_norm.unsqueeze(1)
+
+        # Because of computation errors, some distances might be negative so we put everything >= 0.0
+        distances[distances < 0] = 0
+
+        if not self.squared:
+            # Because the gradient of sqrt is infinite when distances == 0.0 (ex: on the diagonal)
+            # we need to add a small epsilon where distances == 0.0
+            mask = distances.eq(0).float()
+            distances = distances + mask * 1e-16
+
+            distances = (1.0 -mask) * torch.sqrt(distances)
+
+        return distances
+
+    def _get_triplet_mask(self, labels):
+        """Return a 3D mask where mask[a, p, n] is True iff the triplet (a, p, n) is valid.
+        A triplet (i, j, k) is valid if:
+            - i, j, k are distinct
+            - labels[i] == labels[j] and labels[i] != labels[k]
+        Args:
+            labels: tf.int32 `Tensor` with shape [batch_size]
+        """
+        # Check that i, j and k are distinct
+        indices_equal = torch.eye(labels.size(0), device=labels.device).bool()
+        # tensor([[ True, False, False,  ..., False, False, False],
+        #     [False,  True, False,  ..., False, False, False],
+        #     [False, False,  True,  ..., False, False, False],
+        #     ...,
+        #     [False, False, False,  ...,  True, False, False],
+        #     [False, False, False,  ..., False,  True, False],
+        #     [False, False, False,  ..., False, False,  True]], device='cuda:0')
+        indices_not_equal = ~indices_equal
+        # tensor([[False,  True,  True,  ...,  True,  True,  True],
+        #     [ True, False,  True,  ...,  True,  True,  True],
+        #     [ True,  True, False,  ...,  True,  True,  True],
+        #     ...,
+        #     [ True,  True,  True,  ..., False,  True,  True],
+        #     [ True,  True,  True,  ...,  True, False,  True],
+        #     [ True,  True,  True,  ...,  True,  True, False]], device='cuda:0')
+
+        i_not_equal_j = indices_not_equal.unsqueeze(2)
+        i_not_equal_k = indices_not_equal.unsqueeze(1)
+        j_not_equal_k = indices_not_equal.unsqueeze(0)
+
+        distinct_indices = (i_not_equal_j & i_not_equal_k) & j_not_equal_k
+
+
+        label_equal = labels.unsqueeze(0) == labels.unsqueeze(1)
+        i_equal_j = label_equal.unsqueeze(2)
+        i_equal_k = label_equal.unsqueeze(1)
+
+        valid_labels = ~i_equal_k & i_equal_j
+
+        return valid_labels & distinct_indices
+
+    def _get_similar_mask(self, labels):
+        """Return a 3D mask where mask[a, p, n] is True iff the triplet (a, p, n) is valid.
+        A triplet (i, j, k) is valid if:
+            - i, j, k are distinct
+            - labels[i] == labels[j] and labels[i] != labels[k]
+        Args:
+            labels: tf.int32 `Tensor` with shape [batch_size]
+        """
+        # Check that i, j and k are distinct
+        indices_equal = torch.eye(labels.size(0), device=labels.device).bool()
+        # tensor([[ True, False, False,  ..., False, False, False],
+        #     [False,  True, False,  ..., False, False, False],
+        #     [False, False,  True,  ..., False, False, False],
+        #     ...,
+        #     [False, False, False,  ...,  True, False, False],
+        #     [False, False, False,  ..., False,  True, False],
+        #     [False, False, False,  ..., False, False,  True]], device='cuda:0')
+        indices_not_equal = ~indices_equal
+        # tensor([[False,  True,  True,  ...,  True,  True,  True],
+        #     [ True, False,  True,  ...,  True,  True,  True],
+        #     [ True,  True, False,  ...,  True,  True,  True],
+        #     ...,
+        #     [ True,  True,  True,  ..., False,  True,  True],
+        #     [ True,  True,  True,  ...,  True, False,  True],
+        #     [ True,  True,  True,  ...,  True,  True, False]], device='cuda:0')
+        label_equal = labels.unsqueeze(0) == labels.unsqueeze(1)
+
+        return indices_not_equal & label_equal
+
+    def _get_anchor_positive_triplet_mask(self, labels):
+        """Return a 2D mask where mask[a, p] is True iff a and p are distinct and have same label.
+        Args:
+            labels: tf.int32 `Tensor` with shape [batch_size]
+        Returns:
+            mask: tf.bool `Tensor` with shape [batch_size, batch_size]
+        """
+        # Check that i and j are distinct
+        indices_equal = torch.eye(labels.size(0), device=labels.device).bool()
+        indices_not_equal = ~indices_equal
+
+        # Check if labels[i] == labels[j]
+        # Uses broadcasting where the 1st argument has shape (1, batch_size) and the 2nd (batch_size, 1)
+        labels_equal = labels.unsqueeze(0) == labels.unsqueeze(1)
+
+        return labels_equal & indices_not_equal
+
+    def _get_anchor_negative_triplet_mask(self, labels):
+        """Return a 2D mask where mask[a, n] is True iff a and n have distinct labels.
+        Args:
+            labels: tf.int32 `Tensor` with shape [batch_size]
+        Returns:
+            mask: tf.bool `Tensor` with shape [batch_size, batch_size]
+        """
+        # Check if labels[i] != labels[k]
+        # Uses broadcasting where the 1st argument has shape (1, batch_size) and the 2nd (batch_size, 1)
+
+        return ~(labels.unsqueeze(0) == labels.unsqueeze(1))
+
+    # Cell
+    def batch_hard_triplet_loss(self, embeddings, labels):
+        """Build the triplet loss over a batch of embeddings.
+        For each anchor, we get the hardest positive and hardest negative to form a triplet.
+        Args:
+            labels: labels of the batch, of size (batch_size,)
+            embeddings: tensor of shape (batch_size, embed_dim)
+            margin: margin for triplet loss
+            squared: Boolean. If true, output is the pairwise squared euclidean distance matrix.
+                    If false, output is the pairwise euclidean distance matrix.
+        Returns:
+            triplet_loss: scalar tensor containing the triplet loss
+        """
+        # Get the pairwise distance matrix
+        pairwise_dist = self._pairwise_distances(embeddings)
+
+        # For each anchor, get the hardest positive
+        # First, we need to get a mask for every valid positive (they should have same label)
+        mask_anchor_positive = self._get_anchor_positive_triplet_mask(labels).float()
+
+        # We put to 0 any element where (a, p) is not valid (valid if a != p and label(a) == label(p))
+        anchor_positive_dist = mask_anchor_positive * pairwise_dist
+
+        # shape (batch_size, 1)
+        hardest_positive_dist, _ = anchor_positive_dist.max(1, keepdim=True)
+
+        # For each anchor, get the hardest negative
+        # First, we need to get a mask for every valid negative (they should have different labels)
+        mask_anchor_negative = self._get_anchor_negative_triplet_mask(labels).float()
+
+        # We add the maximum value in each row to the invalid negatives (label(a) == label(n))
+        max_anchor_negative_dist, _ = pairwise_dist.max(1, keepdim=True)
+        anchor_negative_dist = pairwise_dist + max_anchor_negative_dist * (1.0 - mask_anchor_negative)
+
+        # shape (batch_size,)
+        hardest_negative_dist, _ = anchor_negative_dist.min(1, keepdim=True)
+
+        # Combine biggest d(a, p) and smallest d(a, n) into final triplet loss
+        tl = hardest_positive_dist - hardest_negative_dist + self.margin
+        tl = F.relu(tl)
+        triplet_loss = tl.mean()
+        similar_loss = hardest_positive_dist.mean()
+
+        return triplet_loss, similar_loss
+
+    # Cell
+    def batch_all_triplet_loss(self, embeddings, labels):
+        """Build the triplet loss over a batch of embeddings.
+        We generate all the valid triplets and average the loss over the positive ones.
+        Args:
+            labels: labels of the batch, of size (batch_size,)
+            embeddings: tensor of shape (batch_size, embed_dim)
+            margin: margin for triplet loss
+            squared: Boolean. If true, output is the pairwise squared euclidean distance matrix.
+                    If false, output is the pairwise euclidean distance matrix.
+        Returns:
+            triplet_loss: scalar tensor containing the triplet loss
+        """
+        # Get the pairwise distance matrix
+        pairwise_dist = self._pairwise_distances(embeddings)
+        
+        anchor_positive_dist = pairwise_dist.unsqueeze(2) #torch.Size([100, 100, 1]) 
+        anchor_negative_dist = pairwise_dist.unsqueeze(1) #torch.Size([100, 1, 100])
+
+        # Compute a 3D tensor of size (batch_size, batch_size, batch_size)
+        # triplet_loss[i, j, k] will contain the triplet loss of anchor=i, positive=j, negative=k
+        # Uses broadcasting where the 1st argument has shape (batch_size, batch_size, 1)
+        # and the 2nd (batch_size, 1, batch_size)
+        triplet_loss = anchor_positive_dist - anchor_negative_dist + self.margin #這個動作非常特殊 [100, 100, 1] - [100, 1, 100] ，在pytorch 會看成 [100, 100, 100] - [100, 100, 100]
+        #[100, 100, 100]
+        # Put to zero the invalid triplets
+        # (where label(a) != label(p) or label(n) == label(a) or a == p)
+        mask = self._get_triplet_mask(labels) # 會產三哥立體方塊，分別瓊舉出所有可能
+        
+        triplet_loss = mask.float() * triplet_loss
+
+        # Remove negative losses (i.e. the easy triplets)
+        triplet_loss = F.relu(triplet_loss)
+
+        # Count number of positive triplets (where triplet_loss > 0)
+        valid_triplets = triplet_loss[triplet_loss > 1e-16]
+        num_positive_triplets = valid_triplets.size(0)
+        #num_valid_triplets = mask.sum()
+
+        #fraction_positive_triplets = num_positive_triplets / (num_valid_triplets.float() + 1e-16)
+
+        # Get final mean triplet loss over the positive valid triplets
+        triplet_loss = triplet_loss.sum() / (num_positive_triplets + 1e-16)
+        
+        
+        #similar loss
+        mask_similar = self._get_similar_mask(labels) # 會產三哥立體方塊，分別瓊舉出所有可能
+        similar_loss =  anchor_positive_dist[mask_similar].contiguous().view(-1)
+        similar_loss = similar_loss.mean()
+        
+        
+        return triplet_loss, similar_loss
+
+
 if __name__ == '__main__':
-    pass
+    embeddings = torch.rand(450, 98).cuda()
+    labels = torch.range(1, 150).cuda()
+    labels = torch.cat((labels, labels, labels), 0)
+    
+    e1 = myTripletLoss(3, type='batch_all', squared=False)
+    
+    e2 = myTripletLoss(3, type='batch_hard', squared=False)
+    
+    e3 = TripletLoss(3)
+    
+    triplet_loss1, similar_loss1 = e1(embeddings, labels)
+    triplet_loss2, similar_loss2 = e2(embeddings, labels)
+    triplet_loss3,similar_loss3 = e3(embeddings, labels)
+  
+    print(triplet_loss1, similar_loss1)  
+    print(triplet_loss2, similar_loss2)
+    print(triplet_loss3, similar_loss3)
