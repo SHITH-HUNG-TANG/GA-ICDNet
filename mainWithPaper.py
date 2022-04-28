@@ -37,8 +37,8 @@ parser.add_argument('--gpu-devices', default='0', type=str, help='gpu device ids
 parser.add_argument('--cooperative', default=0, type=int, help='whether the probe set only consists of subject with bags')
 #parser.add_argument('--cooperative', default=1,type=int)
 # optimization options
-parser.add_argument("--train_batch", default=350, type=int)
-parser.add_argument("--test_batch", default=350, type=int)
+parser.add_argument("--train_batch", default=300, type=int)
+parser.add_argument("--test_batch", default=300, type=int)
 parser.add_argument("--lr", '--learning-rate', default=0.0002, type=float)
 parser.add_argument("--weight-decay", default=5e-4, type=float)
 parser.add_argument("--save-dir", default='save_dir', type=str)
@@ -53,7 +53,7 @@ if not os.path.exists(args.save_dir):
 
 train_f = open(args.save_dir+"/train_loss.txt", "w")
 test_f = open(args.save_dir+"/test.txt", "w")
-writer = SummaryWriter(log_dir= './runs/GA_batch350350_uncooperative_trip_loss-1_sim_loss-0.1_recon_Loss-500_label_loss-0.05')
+writer = SummaryWriter(log_dir= './runs/GA_batch300300_uncooperative_lr-150_trip_loss-1_sim_loss-0.1_recon_Loss-500_label_loss-0.05')
 
 cont_iter = 1
 
@@ -110,13 +110,13 @@ def main():
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.5,0.999))
     #scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.1)
-    scheduler=lr_scheduler.MultiStepLR(optimizer,[140], gamma=0.1, last_epoch=-1)
+    scheduler=lr_scheduler.MultiStepLR(optimizer,[150], gamma=0.1, last_epoch=-1)
 
     #checkpoint = torch.load('./save_group_mask_early8_ones2_0002_sa3_500l2_01label_resbottle_shift002_all190_coo0/ep87.pth.tar')
     #model.load_state_dict(checkpoint['state_dict'])
     start_time = time.time()
     best_rank1 = -np.inf
-    args.max_epoch = 150
+    args.max_epoch = 200
     cont_iter = 1
     for epoch in range(args.start_epoch, args.max_epoch):
         print("==> {}/{}".format(epoch + 1, args.max_epoch))

@@ -17,6 +17,6 @@ names = {8000:'a',
         }
 
 #0.00001_0.000001
-ports = [ i for i in range(8000, 8001)] 
+ports = [ i for i in range(8000, 8001)]
 for p in ports:
-    tensorboard = showTensorboard("./runs", names[p], p, showWeb = True).start()
+    tensorboard = showTensorboard("./backup", names[p], p, showWeb = True).start()

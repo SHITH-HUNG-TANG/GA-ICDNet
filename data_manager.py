@@ -146,11 +146,11 @@ class OULP_bag(object):
 
         self.train = self.__process_data(train)
         self.test_probe, self.test_gallery = self.__process_dense_data(test)
-        # self.val_probe, self.val_gallery = self.__process_dense_data(val)
+        self.val_probe, self.val_gallery = self.__process_dense_data(val)
 
     def __split_data(self):
         train_num = 29097
-        #test_num = 6000
+        #test_num = 10000
         test_num = 29102
         ids_list = os.listdir(self.root)
         print(len(ids_list))
@@ -172,8 +172,11 @@ class OULP_bag(object):
         random.seed(1998326)
         random.shuffle(ids_list_filter,random=r)
         #ids_list_filter=random.shuffle()
+
+        # return ids_list_filter[0:train_num], ids_list_filter[train_num: train_num + test_num], \
+        #        ids_list_filter[train_num + test_num:]
         return ids_list_filter[0:train_num], ids_list_filter[train_num: train_num + test_num], \
-               ids_list_filter[train_num + test_num:]
+               ids_list_filter[0:train_num]
 
     def __process_dense_data(self, dataset):
         probe = []
